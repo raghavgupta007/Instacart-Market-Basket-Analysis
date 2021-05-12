@@ -1,0 +1,330 @@
+# Method 1:
+#installing package for apriori
+install.packages("arules")
+library(arules)
+library(dplyr)
+
+#selecting first 50,000 rows and only first 2 colums from order_prior 
+dforder_prior=order_prior[c(1:50000),]
+dforder_prior=dforder_prior[,c(1,2)]
+View(dforder_prior)
+
+
+#performing left outer join b/w dforder_prior and products
+dforder_prior=merge(x=dforder_prior, y=products,by = "product_id",all.x=T)
+#now we have the required table for modelling.
+
+
+
+#further subsetting the dataset to input in the model.
+dforder_prior_sub=dforder_prior[,c(1,2,3)]
+
+#discretizing the variables.
+dforder_prior_sub$order_id=discretize(dforder_prior_sub$order_id)
+dforder_prior_sub$product_id=discretize(dforder_prior_sub$product_id)
+
+#making the model
+> model1.1=apriori(dforder_prior_sub,parameter=list(support=0.005,confidence=0.25,minlen=2))
+Apriori
+
+Parameter specification:
+ confidence minval smax arem  aval originalSupport maxtime support minlen maxlen target   ext
+       0.25    0.1    1 none FALSE            TRUE       5   0.005      2     10  rules FALSE
+
+Algorithmic control:
+ filter tree heap memopt load sort verbose
+    0.1 TRUE TRUE  FALSE TRUE    2    TRUE
+
+Absolute minimum support count: 50 
+
+set item appearances ...[0 item(s)] done [0.00s].
+set transactions ...[4517 item(s), 10000 transaction(s)] done [0.00s].
+sorting and recoding items ... [13 item(s)] done [0.00s].
+creating transaction tree ... done [0.00s].
+checking subsets of size 1 2 3 done [0.00s].
+writing ... [31 rule(s)] done [0.00s].
+creating S4 object  ... done [0.00s].
+
+#extracting association rules of top 5 product based on lift values.
+inspect(sort(model1.1,by="lift")[1:5])
+    lhs                                      rhs                        support confidence     lift count
+[1] {product_name=Bag of Organic Bananas} => {product_id=[   23,16576)}  0.0119          1 3.431709   119
+[2] {product_name=Organic Avocado}        => {product_id=[33130,49683]}  0.0053          1 2.952465    53
+[3] {product_name=Organic Hass Avocado}   => {product_id=[33130,49683]}  0.0068          1 2.952465    68
+[4] {product_name=Strawberries}           => {product_id=[16576,33130)}  0.0052          1 2.703433    52
+[5] {product_name=Organic Baby Spinach}   => {product_id=[16576,33130)}  0.0070          1 2.703433    70
+#product id 119(bag of bananas) have association with product id 23 and 16576 and so on
+
+
+# method 2: 
+# performing data cleaning and manipulations.
+
+# working with 50,000 entries first
+#c(1,2)=order_id,product_id
+> dforder_train=order_train[c(1:50000),c(1,2)]
+
+# merging tables by left join 
+> dforder_train=merge(x=dforder_train, y=products,by = "product_id",all.x=T)
+
+#keepingonly order_id and product_name in dataset.
+> dforder_train=dforder_train[,c(2,3)]
+
+#sorting dataset according to order_id for making clusters of products
+> dforder_train_sorted=dforder_train[order(dforder_train$order_id),]
+
+#changing datatype to neumeric
+> dforder_train_sorted$order_id=as.numeric(dforder_train_sorted$order_id)
+
+#plyr package can convert dataframes into transactional data.
+# our goal is to put all the products purchased under same order_id to be in 1 block.
+> install.packages("plyr", dependencies = T)
+> library(plyr)
+
+#collapsing dataset and separating product_name by commas.
+> dforder_train_sorted_itemList=ddply(dforder_train,c("order_id"),function(df1)paste(df1$product_name,collapse = ","))
+
+# saving the list.
+> save(dforder_train_sorted_itemList,file = "sortedlist50.csv")
+
+#selecting only the product_name from sorted list.
+#saving the list.
+> write.csv(itemList50k,"ProductList50k.csv", quote = F, row.names = T)
+
+#reading file in a variable
+> transaction1=read.transactions(file.choose(),rm.duplicates = T, format="basket",sep = ",")
+#read.transaction method reads file and make necessary transitions for model implementations.
+#format=basket means row1:transaction id's and row2:list of products.
+
+#quotes are introduced in transaction which are unnecessary.This command remove quotes.
+> transaction1@itemInfo$labels=gsub("\" ","",transaction1@itemInfo$labels)
+
+#making the model.
+> m1.1=apriori(transaction1,parameter=list(support=0.005,confidence=0.25,minlen=2))
+#output of model does not provide efficient information.
+
+#Let's look at summary.
+> summary(m1.1)
+set of 56 rules
+
+rule length distribution (lhs + rhs):sizes
+ 2  3 
+50  6 
+
+   Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+  2.000   2.000   2.000   2.107   2.000   3.000 
+
+summary of quality measures:
+    support           confidence          lift             count       
+ Min.   :0.005026   Min.   :0.2553   Min.   :  1.992   Min.   : 24.00  
+ 1st Qu.:0.005236   1st Qu.:0.2921   1st Qu.:  2.783   1st Qu.: 25.00  
+ Median :0.005864   Median :0.4179   Median :  4.611   Median : 28.00  
+ Mean   :0.007345   Mean   :0.5953   Mean   : 72.058   Mean   : 35.07  
+ 3rd Qu.:0.008429   3rd Qu.:1.0000   3rd Qu.:170.536   3rd Qu.: 40.25  
+ Max.   :0.022199   Max.   :1.0000   Max.   :191.000   Max.   :106.00  
+
+mining info:
+         data ntransactions support confidence
+ transaction1          4775   0.005       0.25
+#summary tells us that we have 56 association rules satisfying our condition
+
+
+#if we directly inspect model, we will have all 56 association rules.
+#filtering out top 5 association rules based on support.
+> inspect(sort(m1.1,by="support")[1:5])
+    lhs                       rhs                      support    confidence lift     count
+[1] {Organic Strawberries} => {Bag of Organic Bananas} 0.02219895 0.2650000  2.309078 106  
+[2] {Organic Hass Avocado} => {Bag of Organic Bananas} 0.01612565 0.3377193  2.942718  77  
+[3] {Organic Avocado}      => {Banana}                 0.01570681 0.3138075  2.448417  75  
+[4] {Organic Raspberries}  => {Bag of Organic Bananas} 0.01151832 0.3235294  2.819075  55  
+[5] {Limes}                => {Large Lemon}            0.01130890 0.2769231  5.125224  54 
+
+#arulesViz package for visualization of model.
+> install.packages("arulesViz")
+> library(arulesViz)
+> itemFrequencyPlot(transaction1, topN=10,col="blue")
+
+#support vs lift graph with confidence shading.
+> plot(m1.1,measure = c("support","lift"),shading = "confidence")
+#values with high support,confidence and lift can be considered to have a strong association rule and hence can be recommended.
+
+
+#ECLAT ALGORITHM
+# performing data cleaning and manipulations.
+
+# working with 50,000 entries first
+#c(1,2)=order_id,product_id
+> dforder_train=order_train[c(1:50000),c(1,2)]
+
+# merging tables by left join 
+> dforder_train=merge(x=dforder_train, y=products,by = "product_id",all.x=T)
+
+#keepingonly order_id,product_id and product_name in dataset.
+> dforder_train=dforder_train[,c(2,3)]
+
+#sorting dataset according to order_id for making clusters of products
+> dforder_train_sorted=dforder_train[order(dforder_train$order_id),]
+
+#changing datatype to neumeric
+> dforder_train_sorted$order_id=as.numeric(dforder_train_sorted$order_id)
+
+#plyr package can convert dataframes into transactional data.
+# our goal is to put all the products purchased under same order_id to be in 1 block.
+> install.packages("plyr", dependencies = T)
+> library(plyr)
+
+#collapsing dataset and separating product_name by commas.
+> dforder_train_sorted_itemList=ddply(dforder_train,c("order_id"),function(df1)paste(df1$product_name,collapse = ","))
+
+# saving the list.
+> save(dforder_train_sorted_itemList,file = "sortedlist50.csv")
+
+#selecting only the product_name from sorted list.
+> itemListEclat=dforder_train_sorted_itemList[,c(2)]
+
+#saving the list.
+> write.csv(itemListEclat,"ProductListEclat.csv", quote = F, row.names = T)
+
+#reading file in a variable
+> transaction=read.transactions(file.choose(),rm.duplicates = T, format="basket",sep = ",")
+#read.transaction method reads file and make necessary transitions for model implementations.
+#format=basket means row1:transaction id's and row2:list of products.
+
+#quotes are introduced in transaction which are unnecessary.This command remove quotes.
+> transaction@itemInfo$labels=gsub("\" ","",transaction@itemInfo$labels)
+
+#making the model.
+> mEclat=mEclat(transaction,parameter=list(support=0.005,minlen=2))
+#output of model does not provide efficient information.
+
+#Let's look at summary.
+> summary(mEclat)
+set of 102 itemsets
+
+most frequent items:
+Bag of Organic Bananas                 Banana   Organic Baby Spinach   Organic Strawberries 
+                    24                     24                     15                     15 
+           Large Lemon                (Other) 
+                    10                    118 
+
+element (itemset/transaction) length distribution:sizes
+  2   3 
+100   2 
+
+   Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+   2.00    2.00    2.00    2.02    2.00    3.00 
+
+summary of quality measures:
+    support             count       
+ Min.   :0.005026   Min.   : 24.00  
+ 1st Qu.:0.005445   1st Qu.: 26.00  
+ Median :0.006283   Median : 30.00  
+ Mean   :0.007367   Mean   : 35.18  
+ 3rd Qu.:0.008325   3rd Qu.: 39.75  
+ Max.   :0.022199   Max.   :106.00  
+
+includes transaction ID lists: FALSE 
+
+mining info:
+        data ntransactions support
+ transaction          4775   0.005
+#summary tells us that we have 102 association rules satisfying our condition
+
+
+#if we directly inspect model, we will have all 102 association rules.
+#filtering out top 5 association rules based on support.
+> inspect(sort(mEclat,by="support")[1:5])
+    items                                         support    count
+[1] {Bag of Organic Bananas,Organic Strawberries} 0.02219895 106  
+[2] {Banana,Organic Strawberries}                 0.01696335  81  
+[3] {Bag of Organic Bananas,Organic Hass Avocado} 0.01612565  77  
+[4] {Banana,Organic Avocado}                      0.01570681  75  
+[5] {Bag of Organic Bananas,Organic Baby Spinach} 0.01570681  75  
+
+
+#making the model for 1Lakh entries
+ mEclat=eclat(transaction1,parameter=list(support=0.005,minlen=2))
+#output of model does not provide efficient information.
+
+Let's look at summary.
+ summary(mEclat)
+
+
+most frequent items:
+ Bag of Organic Bananas                 Banana   Organic Baby Spinach   Organic Strawberries 
+24                     24                     15                     15 
+Large Lemon                (Other) 
+10                    118 
+
+element (itemset/transaction) length distribution:sizes
+2   3 
+100   2 
+
+Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+2.00    2.00    2.00    2.02    2.00    3.00 
+
+summary of quality measures:
+  support             count       
+Min.   :0.005026   Min.   : 24.00  
+1st Qu.:0.005445   1st Qu.: 26.00  
+Median :0.006283   Median : 30.00  
+Mean   :0.007367   Mean   : 35.18  
+3rd Qu.:0.008325   3rd Qu.: 39.75  
+Max.   :0.022199   Max.   :106.00  
+
+includes transaction ID lists: FALSE 
+
+mining info:
+  data ntransactions support
+transaction          4775   0.005
+#summary tells us that we have 102 association rules satisfying our condition
+
+
+#if we directly inspect model, we will have all 102 association rules.
+#filtering out top 5 association rules based on support.
+> inspect(sort(mEclat,by="support")[1:5])
+
+
+summary(mEclat1)
+set of 108 itemsets
+
+most frequent items:
+  Bag of Organic Bananas                 Banana   Organic Baby Spinach   Organic Strawberries 
+28                     27                     16                     13 
+Organic Hass Avocado                (Other) 
+11                    125 
+
+element (itemset/transaction) length distribution:sizes
+2   3 
+104   4 
+
+Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+2.000   2.000   2.000   2.037   2.000   3.000 
+
+summary of quality measures:
+  support             count       
+Min.   :0.005096   Min.   : 48.00  
+1st Qu.:0.005494   1st Qu.: 51.75  
+Median :0.006105   Median : 57.50  
+Mean   :0.007441   Mean   : 70.08  
+3rd Qu.:0.008122   3rd Qu.: 76.50  
+Max.   :0.025799   Max.   :243.00  
+
+includes transaction ID lists: FALSE 
+
+mining info:
+  data ntransactions support
+transaction2          9419   0.005
+
+
+
+inspect(sort(mEclat1,by="support")[1:5])
+#items                                         support    count
+[1] {Bag of Organic Bananas,Organic Strawberries} 0.02579892 243  
+[2] {Bag of Organic Bananas,Organic Baby Spinach} 0.01783629 168  
+[3] {Banana,Organic Avocado}                      0.01719928 162  
+[4] {Bag of Organic Bananas,Organic Hass Avocado} 0.01603143 151  
+[5] {Banana,Large Lemon}                          0.01433273 135  
+
+
+
+dforder_train_sorted_itemList=dforder_train_sorted_itemList%>%mutate(count=sapply(strsplit(dforder_train_sorted_itemList$V1,","),FUN=function(x){length(x[x!="Null"])}))

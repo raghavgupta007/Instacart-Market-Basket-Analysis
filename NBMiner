@@ -1,0 +1,107 @@
+# working with 50,000 entries first
+#c(1,2)=order_id,product_id
+> dforder_train=order_train[c(1:50000),c(1,2)]
+
+# merging tables by left join 
+> dforder_train=merge(x=dforder_train, y=products,by = "product_id",all.x=T)
+
+#keepingonly order_id,product_id and product_name in dataset.
+> dforder_train=dforder_train[,c(2,3)]
+
+#sorting dataset according to order_id for making clusters of products
+> dforder_train_sorted=dforder_train[order(dforder_train$order_id),]
+
+#changing datatype to neumeric
+> dforder_train_sorted$order_id=as.numeric(dforder_train_sorted$order_id)
+
+#plyr package can convert dataframes into transactional data.
+# our goal is to put all the products purchased under same order_id to be in 1 block.
+> install.packages("plyr", dependencies = T)
+> library(plyr)
+
+#collapsing dataset and separating product_name by commas.
+> dforder_train_sorted_itemList=ddply(dforder_train,c("order_id"),function(df1)paste(df1$product_name,collapse = ","))
+
+# saving the list.
+> save(dforder_train_sorted_itemList,file = "sortedlist50.csv")
+
+#selecting only the product_name from sorted list.
+> itemNBminer=dforder_train_sorted_itemList[,c(2)]
+
+#saving the list.
+> write.csv(itemNBminer,"ProductListNBminer.csv", quote = F, row.names = T)
+
+#reading file in a variable
+> transaction=read.transactions(file.choose(),rm.duplicates = T, format="basket",sep = ",")
+#read.transaction method reads file and make necessary transitions for model implementations.
+#format=basket means row1:transaction id's and row2:list of products.
+
+#quotes are introduced in transaction which are unnecessary.This command remove quotes.
+> transaction@itemInfo$labels=gsub("\" ","",transaction@itemInfo$labels)
+
+#making the model.
+> install.packages("arulesNBMiner")
+> library(arulesNBMiner)
+> param <- NBMinerParameters(transaction, pi=0.90, theta=0.5, maxlen=5,minlen=3, trim = 0, verb = TRUE)
+data	: the data as a object of class transactions.
+trim	: fraction of incidences to trim off the tail of the frequency distribution of the data.
+pi	:precision threshold π.
+theta	:pruning parameter θ.
+minlen	:minimum number of items in found itemsets (default: 1).
+maxlen	:maximal number of items in found itemsets (default: 5).
+rules	:mine NB-precise rules instead of NB-frequent itemsets?
+plot	:plot the model?
+verbose	:use verbose output for the estimation procedure.
+
+modelNB= NBMiner(transaction,param, control = list(verb = TRUE, debug=FALSE))
+
+> summary(modelNB)
+set of 319171 itemsets
+
+most frequent items:
+Bag of Organic Bananas                 Banana   Organic Strawberries   Organic Baby Spinach 
+                 43021                  38179                  36969                  31914 
+                 Limes                (Other) 
+                 27660                 882782 
+
+element (itemset/transaction) length distribution:sizes
+     3      4      5 
+220204  94922   4045 
+
+   Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+  3.000   3.000   3.000   3.323   4.000   5.000 
+
+summary of quality measures:
+   precision
+ Min.   :1  
+ 1st Qu.:1  
+ Median :1  
+ Mean   :1  
+ 3rd Qu.:1  
+ Max.   :1  
+
+includes transaction ID lists: FALSE 
+
+> inspect(head(modelNB))
+    items                                                precision
+[1] {Medium Navel Orange,                                         
+     Organic Avocado,                                             
+     Organic Grape Tomatoes}                                     1
+[2] {Limes,                                                       
+     Organic Cilantro,                                            
+     Red Raspberries,                                             
+     Yellow Onions}                                              1
+[3] {Honeycrisp Apple,                                            
+     Icelandic Style Skyr Non-Fat Strained Plain Yogurt,          
+     Organic Riced Cauliflower}                                  1
+[4] {Large Lemon,                                                 
+     Limes,                                                       
+     Organic Cucumber,                                            
+     Ripe Large Pitted Olives}                                   1
+[5] {Bunched Cilantro,                                            
+     Limes,                                                       
+     Organic Avocado}                                            1
+[6] {Organic Cucumber,                                            
+     Organic Granny Smith Apple,                                  
+     Organic Large Extra Fancy Fuji Apple,                        
+     Organic Raspberries}                                        1
